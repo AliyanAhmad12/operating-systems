@@ -53,35 +53,65 @@ export default function App() {
     };
   }, []);
 
-  const handleToggleAlert = async () => {
-    if (isAlertActive) {
-      // Cease Alert
-      try {
-        await AudioService.stopAlert();
-        await NotificationService.dismissAlertNotification();
-      } catch (err) {
-        console.error('Error stopping alert:', err);
-      }
-    } else {
-      // Start Alert
-      try {
-        // Request or check notification permissions before displaying ongoing notice
-        await NotificationService.requestPermissions();
-        await AudioService.startAlert();
-        await NotificationService.showActiveAlertNotification(warningMessage);
-      } catch (err) {
-        console.error('Failed to initiate alert:', err);
-        Alert.alert(
-          'Playback Notice',
-          'Failed to trigger audio stream. Please verify audio permissions or asset integrity: ' + err.message
-        );
-      }
+  const isAlertActiveRef = useRef(false);
+  const startLockRef = useRef(false);
+
+  useEffect(() => {
+    isAlertActiveRef.current = isAlertActive;
+  }, [isAlertActive]);
+
+  const handleStartAlert = async () => {
+    if (isAlertActiveRef.current || startLockRef.current) return;
+    startLockRef.current = true;
+    try {
+      await NotificationService.requestPermissions();
+      await AudioService.startAlert();
+      await NotificationService.showActiveAlertNotification(warningMessage);
+    } catch (err) {
+      console.error('Failed to initiate alert:', err);
+    } finally {
+      setTimeout(() => {
+        startLockRef.current = false;
+      }, 400);
     }
   };
 
+  const handleStopAlert = async () => {
+    try {
+      await AudioService.stopAlert();
+      await NotificationService.dismissAlertNotification();
+    } catch (err) {
+      console.error('Error stopping alert:', err);
+    }
+  };
+
+  const handleToggleAlert = async () => {
+    if (isAlertActive) {
+      await handleStopAlert();
+    } else {
+      await handleStartAlert();
+    }
+  };
+
+  // Global Click/Tap anywhere on screen to trigger alert immediately
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const handleGlobalClick = (e) => {
+        if (isAlertActiveRef.current) return;
+        handleStartAlert();
+      };
+
+      window.addEventListener('click', handleGlobalClick);
+      window.addEventListener('touchstart', handleGlobalClick, { passive: true });
+      return () => {
+        window.removeEventListener('click', handleGlobalClick);
+        window.removeEventListener('touchstart', handleGlobalClick);
+      };
+    }
+  }, []);
+
   const handleUpdateMessage = async (newMessage) => {
     setWarningMessage(newMessage);
-    // If an alert is actively running, update the background notification text live
     if (isAlertActive) {
       await NotificationService.showActiveAlertNotification(newMessage);
     }
@@ -90,7 +120,14 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" backgroundColor={COLORS.background} />
-      <View style={styles.container}>
+      <View
+        style={styles.container}
+        onTouchStart={() => {
+          if (!isAlertActiveRef.current) {
+            handleStartAlert();
+          }
+        }}
+      >
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}

@@ -138,9 +138,29 @@ class AlertAudioService {
         this.engineUsed = 'expo-av (Legacy Engine)';
         started = true;
       } catch (fallbackErr) {
-        console.error('Both audio engines encountered errors:', fallbackErr);
-        throw fallbackErr;
+        console.warn('expo-av fallback warning:', fallbackErr);
       }
+    }
+
+    // Strategy 3: Direct HTML5 Web Audio (Browser environment)
+    if (!started && typeof Audio !== 'undefined') {
+      try {
+        if (!this.webAudio) {
+          const audioSrc = typeof ALARM_ASSET === 'string' ? ALARM_ASSET : (ALARM_ASSET.uri || '/alarm.mp3');
+          this.webAudio = new Audio(audioSrc);
+          this.webAudio.loop = true;
+          this.webAudio.volume = 1.0;
+        }
+        await this.webAudio.play();
+        this.engineUsed = 'HTML5 Audio (Web)';
+        started = true;
+      } catch (webErr) {
+        console.warn('HTML5 Web Audio error:', webErr);
+      }
+    }
+
+    if (!started) {
+      throw new Error('All audio playback engines failed to initialize');
     }
 
     this.isPlaying = true;
@@ -177,6 +197,15 @@ class AlertAudioService {
         await this.fallbackSound.setPositionAsync(0);
       } catch (err) {
         console.warn('Error stopping fallback sound:', err);
+      }
+    }
+
+    if (this.webAudio) {
+      try {
+        this.webAudio.pause();
+        this.webAudio.currentTime = 0;
+      } catch (err) {
+        console.warn('Error pausing web audio:', err);
       }
     }
 
